@@ -13,6 +13,10 @@ app.use(express.json());
 
 app.use("/api/authen", require("./api/api_login"));
 
+app.use("/api/api_counter", require("./api/api_counter")); 
+app.use("/api/api_counter", require("./api/api_counter")); 
+app.use("/api/api_statusMMS", require("./api/api_statusMMS")); 
+
 
 app.listen(5011, () => {
  
