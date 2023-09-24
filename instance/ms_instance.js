@@ -1,5 +1,5 @@
 const Sequelize = require("sequelize");
-const dbms = new Sequelize("mms_demo", "ad", "Somnuek2020", {
+const dbms = new Sequelize("mms_demo", "sa", "sa@admin", {
   host: 'localhost',
   dialect: "mssql",
   dialectOptions: {
