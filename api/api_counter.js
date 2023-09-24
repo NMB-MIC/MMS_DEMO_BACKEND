@@ -176,7 +176,7 @@ router.post("/master_mc", async (req, res) => {
 });
 
 router.get("/list_mc", async (req, res) => {
- 
+
   try {
     let result = await counter_table.sequelize.query(
       `
@@ -224,7 +224,9 @@ router.post("/mms_log", async (req, res) => {
         from tb2 where [NextTimeStamp] is not null
     `
     );
+    console.log(Result)
     return res.json({ result: Result[0] });
+  
   } catch (error) {
     res.json({
       error,
@@ -328,56 +330,40 @@ router.post("/AlarmTopic_time2", async (req, res) => {
               when [mc_status] = '1' then 'RUN'
               when [mc_status] = '2' then 'STOP'
               when [mc_status] = '3' then 'ALARM'
-              when [mc_status] = '4' then 'WAIT PART'
-              when [mc_status] = '5' then 'FULL PART'
+              when [mc_status] = '4' then 'ADJUST'
+              when [mc_status] = '5' then 'SETUP'
+              when [mc_status] = '6' then 'CHTOOL'
+              when [mc_status] = '7' then 'WARM_MC'
+              when [mc_status] = '8' then 'OTHER'
                 end as [status]
 
-              ,convert(varchar,DATEADD(s,[SEC],0),8) as Alarm
-              ,IIF(mc_status = '1','badge rounded-pill bg-success',IIF(mc_status = '2','badge rounded-pill bg-danger',IIF(mc_status = '3','badge rounded-pill bg-warning',IIF(mc_status = '4','badge rounded-pill bg-info','badge rounded-pill bg-primary')))) as bg_badge
+                ,convert(varchar,DATEADD(s,[SEC],0),8) as Alarm
+                ,IIF(mc_status = '1','badge rounded-pill bg-success',
+                IIF(mc_status = '2','badge rounded-pill bg-danger',
+                IIF(mc_status = '3','badge rounded-pill bg-warning',
+                IIF(mc_status = '4','badge rounded-pill bg-info',
+                IIF(mc_status = '5','badge rounded-pill bg-primary',
+                IIF(mc_status = '6','badge rounded-pill bg-light text-dark',
+                IIF(mc_status = '7','badge rounded-pill bg-dark','badge rounded-pill bg-warning text-dark'
+                ))))))) as bg_badge
               from tb2
-              WHERE [SEC] <> '' and mc_status in ('1','2','3','4','5')
+              WHERE [SEC] <> '' and mc_status in ('1','2','3','4','5','6','7','8')
               order by [SEC] desc`
 
-      //       `
-      //       /* count time HH:mm:ss */
-      //       with tb1 as(SELECT
-      //         [registered_at],
-      //             [status_time],
-      //             [mc_status],
-      //             [mc_no],
-      //         LEAD([status_time]) OVER (ORDER BY [status_time] ) AS previous,
-      //         LEAD([status_time]) OVER (ORDER BY [status_time] ASC) - [status_time] AS difference_previous
-      //       FROM [counter].[dbo].[grinding_status_alarm_counter]
-      //       where [registered_at] between '${req.body.date2}' and '${req.body.dateEnd}' and [mc_no] = '${req.body.machine}')
-      //           ,tb2 as(select
-      //             [mc_status],
-      //               sum(DATEDIFF(SECOND, '0:00:00', [difference_previous] )) as [sec]
-      //              from tb1
-      //              where [registered_at] between '${req.body.date2}' and '${req.body.dateEnd}' and [mc_no] = '${req.body.machine}'
-      //             group by [mc_status])
-      //             select
-      //             [SEC],
-      //             [mc_status], case
-      //             when [mc_status] = '0' then 'STOP'
-      //             when [mc_status] = '1' then 'RUN'
-      //             when [mc_status] = '2' then 'ALARM'
-      //             when [mc_status] = '3' then 'WAIT PART'
-      //             when [mc_status] = '4' then 'FULL PART'
-      //             when [mc_status] = '5' then 'CLEAR'
-      //               end as [status]
-
-      //             ,convert(varchar,DATEADD(s,[SEC],0),8) as Alarm
-      //             from tb2
-      //             order by [mc_status] ASC
-      // `
     );
-    return res.json({ result: Result[0] });
+ 
+    return res.json({ result: Result[0] }
+    
+      
+      );
+   
   } catch (error) {
     res.json({
       error,
       api_result: constance.NOK,
     });
   }
+
 });
 
 //mc status [non/operating time]
@@ -414,7 +400,7 @@ FROM [mms_demo].[dbo].[data_mcstatus]
         SELECT *
           ,lead([occurred]) over(partition by [mc_no] order by [mc_no],[occurred]) AS [NextTimeStamp]
         FROM tb3 
-        where tb3.[mfg_date]  between '${start_date}'  and '${end_date}' --= '2023-08-24'
+        where tb3.[mfg_date]  between '${start_date}'  and '${end_date}' 
         )
         ,tb5 as (
     select * ,datediff(MINUTE,occurred,NextTimeStamp) as timediff 
@@ -538,7 +524,7 @@ FROM [mms_demo].[dbo].[data_mcstatus]
 
       res.json({
         // resultBall: BallUsage[0],
-        result_length:resultdata[0].length,
+        result_length: resultdata[0].length,
         result: dataset,
         resultDate: newDate,
 
@@ -609,26 +595,46 @@ FROM [mms_demo].[dbo].[data_mcstatus]
     where [mc_status] = '3'
     group by mfg_date,[mc_no]
     )
-    ,wait as ( select mfg_date,[mc_no], sum(timediff) as wait_oper
+    ,adjust as ( select mfg_date,[mc_no], sum(timediff) as adjust_oper
     from tb5 
     where [mc_status] = '4'
     group by mfg_date,[mc_no]
     )
-    ,full_part as ( select mfg_date,[mc_no], sum(timediff) as full_oper
+    ,setup as ( select mfg_date,[mc_no], sum(timediff) as setup_oper
     from tb5 
     where [mc_status] = '5'
     group by mfg_date,[mc_no]
     )
-    select run.mfg_date,run.[mc_no],run_oper,stop_oper,alarm_oper,wait_oper,full_oper
-    from run 
+    ,chtool as ( select mfg_date,[mc_no], sum(timediff) as chtool_oper
+    from tb5 
+    where [mc_status] = '6'
+    group by mfg_date,[mc_no]
+    )
+    ,warm_mc as ( select mfg_date,[mc_no], sum(timediff) as warm_mc_oper
+    from tb5 
+    where [mc_status] = '7'
+    group by mfg_date,[mc_no]
+    )
+    ,other as ( select mfg_date,[mc_no], sum(timediff) as other_oper
+    from tb5 
+    where [mc_status] = '8'
+    group by mfg_date,[mc_no]
+    )
+    select run.mfg_date,run.[mc_no],run_oper,stop_oper,alarm_oper,adjust_oper,setup_oper,chtool_oper,warm_mc_oper,other_oper
     left join stop
     on run.mfg_date = stop.mfg_date
     left join alarm
     on run.mfg_date = alarm.mfg_date
-    left join wait
-    on run.mfg_date = wait.mfg_date
-    left join full_part
-    on run.mfg_date = full_part.mfg_date
+    left join adjust
+    on run.mfg_date = adjust.mfg_date
+    left join setup
+    on run.mfg_date = setup.mfg_date
+    left join chtool
+    on run.mfg_date = chtool.mfg_date
+    left join warm_mc
+    on run.mfg_date = warm_mc.mfg_date
+    left join other
+    on run.mfg_date = other.mfg_date
 
 `
       );
@@ -636,11 +642,16 @@ FROM [mms_demo].[dbo].[data_mcstatus]
       console.log(resultdata[0].length);
       arrayData = resultdata[0];
       let name_series = [
-        "RUN (1)",
-        "STOP (2)",
-        "ALARM (3)",
-        "WAIT PART (4)",
-        "FULL PART (5)",
+        "RUN",
+        "STOP",
+        "ALARM",
+        "ADJUST",
+        "SETUP",
+        "CHTOOL",
+        "WARM_MC",
+        "OTHER"
+
+     
       ];
       let resultMC_Status = [];
       arrayData.forEach(function (a) {
@@ -665,6 +676,9 @@ FROM [mms_demo].[dbo].[data_mcstatus]
       let getarr3 = [];
       let getarr4 = [];
       let getarr5 = [];
+      let getarr6 = [];
+      let getarr7 = [];
+      let getarr8 = [];
       for (let index = 0; index < resultMC_Status.length; index++) {
         const item = resultMC_Status[index];
         await getarr1.push(item.data[0]);
@@ -672,9 +686,12 @@ FROM [mms_demo].[dbo].[data_mcstatus]
         await getarr3.push(item.data[2]);
         await getarr4.push(item.data[3]);
         await getarr5.push(item.data[4]);
+        await getarr6.push(item.data[5]);
+        await getarr7.push(item.data[6]);
+        await getarr8.push(item.data[7]);
       }
       let getarr = [];
-      getarr.push(getarr1, getarr2, getarr3, getarr4, getarr5);
+      getarr.push(getarr1, getarr2, getarr3, getarr4, getarr5, getarr6, getarr7, getarr8);
       // console.log(getarr);
       //set name ball
       let namemc = [];
@@ -778,25 +795,25 @@ router.get(
         )
           select [mc_no] as name,
           ` +
-          command_column +
-          ` as data
+        command_column +
+        ` as data
             from tb2
         PIVOT (sum(new_mc_status)
         FOR [mfg_date] IN (` +
-          command_pivot +
-          `)
+        command_pivot +
+        `)
         ) AS pvt
         ORDER BY pvt.[mc_no]
           `
       );
-      
+
       arrayData_Over = resultMMS[0];
       console.log(arrayData_Over);
       //   arrayData_Over.forEach(function (data, index) {
       //     arrayData_Over[index].array = (data.array.split(","))
       // })
       // console.log("test", arrayData_Over)
-// ตัด '
+      // ตัด '
       arrayData_Over.forEach(function (data, index) {
         arrayData_Over[index].data = data.data.split(",").map((str) => {
           return +str;
@@ -847,7 +864,7 @@ router.get(
 //          iif(DATEPART(HOUR, [occurred])<7,dateadd(day,-1,[occurred]),[occurred]) as occur_new
 //            ,[mc_status]
 //            ,[occurred]
-          
+
 //          ,[mc_no]
 //       FROM [counter].[dbo].[test_mc_status]
 //       where [mc_no] ='${selectMC}' 
@@ -875,7 +892,7 @@ router.get(
 //       iif(DATEPART(HOUR, [occurred])<7,dateadd(day,-1,[occurred]),[occurred]) as occur_new
 //         ,[mc_status]
 //         ,[occurred]
-       
+
 //       ,[mc_no]
 //    FROM [counter].[dbo].[test_mc_status]
 //    where [mc_no] ='${selectMC}' 
@@ -901,7 +918,7 @@ router.get(
 //       iif(DATEPART(HOUR, [occurred])<7,dateadd(day,-1,[occurred]),[occurred]) as occur_new
 //         ,[mc_status]
 //         ,[occurred]
-       
+
 //       ,[mc_no]
 //    FROM [counter].[dbo].[test_mc_status]
 //    where [mc_no] ='${selectMC}' 
