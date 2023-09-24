@@ -84,13 +84,13 @@ FROM [counter].[dbo].[test_mms]
   )
   select [topic],
   ` +
-        command_column +
-        ` as array
+      command_column +
+      ` as array
     from tb1 
 PIVOT (sum(totalMinute)
 FOR [newDate] IN (` +
-        command_pivot +
-        `)
+      command_pivot +
+      `)
 ) AS pvt
 ORDER BY pvt.[topic]
 
@@ -162,6 +162,30 @@ router.post("/master_mc", async (req, res) => {
     return res.json({
       result: result[0],
       result_basic: result_basic[0],
+      api_result: constance.OK,
+    });
+  } catch (error) {
+    console.log("*******master*****error***************");
+
+    console.log(result);
+    res.json({
+      result: error,
+      api_result: constance.NOK,
+    });
+  }
+});
+
+router.get("/list_mc", async (req, res) => {
+ 
+  try {
+    let result = await counter_table.sequelize.query(
+      `
+      SELECT  distinct([mc_no])  FROM [mms_demo].[dbo].[data_demo]
+          `
+    );
+
+    return res.json({
+      result: result[0],
       api_result: constance.OK,
     });
   } catch (error) {
@@ -296,7 +320,7 @@ router.post("/AlarmTopic_time2", async (req, res) => {
                 sum(DATEDIFF(SECOND, '0:00:00', [difference_previous] )) as [sec]
                from tb1
                where mfg_date = '${req.body.date2}' and [mc_no] = '${req.body.machine}'
-               --where mfg_date = '${req.body.date2}' and [mc_no] = '${req.body.machine}'
+              
               group by [mc_status])
               select top 3
               [SEC],
@@ -311,7 +335,7 @@ router.post("/AlarmTopic_time2", async (req, res) => {
               ,convert(varchar,DATEADD(s,[SEC],0),8) as Alarm
               ,IIF(mc_status = '1','badge rounded-pill bg-success',IIF(mc_status = '2','badge rounded-pill bg-danger',IIF(mc_status = '3','badge rounded-pill bg-warning',IIF(mc_status = '4','badge rounded-pill bg-info','badge rounded-pill bg-primary')))) as bg_badge
               from tb2
-              WHERE [SEC] <> '' and mc_status in ('1','2')
+              WHERE [SEC] <> '' and mc_status in ('1','2','3','4','5')
               order by [SEC] desc`
 
       //       `
@@ -355,6 +379,605 @@ router.post("/AlarmTopic_time2", async (req, res) => {
     });
   }
 });
+
+//mc status [non/operating time]
+router.post(
+  "/MC_Status_All/:start_date/:end_date/:selectMc",
+  async (req, res) => {
+    try {
+      let { start_date } = req.params;
+      let { end_date } = req.params;
+      let { selectMc } = req.params;
+      let resultdata = await counter_table.sequelize.query(
+        `WITH tb1
+      AS
+      (
+      SELECT  
+      iif(DATEPART(HOUR, [occurred])<7,dateadd(day,-1,[occurred]),[occurred]) as occur_new
+  , [registered_at]
+   ,[occurred]
+   ,[mc_status]
+   ,[mc_no]
+FROM [mms_demo].[dbo].[data_mcstatus]
+   where [mc_no] ='${selectMc}' 
+   group by [mc_status],iif(DATEPART(HOUR, [occurred])<7,dateadd(day,-1,[occurred]),[occurred])  , [registered_at]
+   ,[occurred]
+   ,[mc_status]
+   ,[mc_no])
+    , tb2  as(   select  [mc_status],format(occur_new,'yyyy-MM-dd')  as newDate ,[occurred],[mc_no]
+      FROM tb1
+    )
+    ,tb3 as (select tb2.[newDate]  as [mfg_date],[mc_no],[mc_status],[occurred]
+    from tb2
+   )
+    ,tb4 as (
+        SELECT *
+          ,lead([occurred]) over(partition by [mc_no] order by [mc_no],[occurred]) AS [NextTimeStamp]
+        FROM tb3 
+        where tb3.[mfg_date]  between '${start_date}'  and '${end_date}' --= '2023-08-24'
+        )
+        ,tb5 as (
+    select * ,datediff(MINUTE,occurred,NextTimeStamp) as timediff 
+    from tb4 where [NextTimeStamp] is not null
+   --group by [mfg_date],[mc_no],occurred,NextTimeStamp,[mc_status]
+    --order by occurred desc
+    ) 
+    ,non as (
+    select mfg_date,[mc_no], sum(timediff) as non_oper
+    from tb5 
+    where [mc_status] <> '1'
+    group by mfg_date,[mc_no]
+    )
+    ,oper as ( select mfg_date,[mc_no], sum(timediff) as oper
+    from tb5 
+    group by mfg_date,[mc_no]
+    )
+    select non.mfg_date,oper.[mc_no],oper,non_oper
+    from non 
+    left join oper
+    on non.mfg_date = oper.mfg_date
+    --where oper > non_oper`
+        //       `-- ///////////  non operating [1-5] = all  ///////////
+        //       with tb1_min as(
+        //       SELECT [occurred],mc_no,[mc_status],format (iif(DATEPART(HOUR, [occurred])<7,dateadd(day,-1,[occurred]),[occurred]),'yyyy-MM-dd') as mfg_date
+        //           ,convert(varchar, [occurred], 108) as min_cur
+        //         FROM [counter].[dbo].[data_mcstatus]
+        //        where  DATEPART(HOUR,[occurred] ) > '12' and /*DATEPART(HOUR,[occurred] ) = '15' and*/ format (iif(DATEPART(HOUR, [occurred])<7,dateadd(day,-1,[occurred]),[occurred]),'yyyy-MM-dd') between '${start_date}'  and '${end_date}'
+        //        and mc_no = '${selectMc}' and [mc_status] <> '1'
+        //        )
+        //        , total_tb1 as (
+        //        select mfg_date,MIN(min_cur) as min_date,MAX(min_cur) as max_date,mc_no
+        //        from tb1_min
+        //        group by mc_no,mfg_date
+        //        )
+        //        -- //////////  operationg [1-5]   ////////////
+        //        ,tb2_min as(
+        //       SELECT [occurred],mc_no,[mc_status],format (iif(DATEPART(HOUR, [occurred])<7,dateadd(day,-1,[occurred]),[occurred]),'yyyy-MM-dd') as mfg_date
+        //           ,convert(varchar, [occurred], 108) as min_cur
+        //         FROM [counter].[dbo].[data_mcstatus]
+        //        where  DATEPART(HOUR,[occurred] ) > '12' and /*DATEPART(HOUR,[occurred] ) = '15' and*/  format (iif(DATEPART(HOUR, [occurred])<7,dateadd(day,-1,[occurred]),[occurred]),'yyyy-MM-dd') between '${start_date}'  and '${end_date}'
+        //        and mc_no = '${selectMc}' and [mc_status] = '1'
+        //        --order by registered_at asc
+        //        )
+        //        , total_tb2 as (select mfg_date,MIN(min_cur) as min_date,MAX(min_cur) as max_date, mc_no
+        //        from tb2_min
+        //       group by mc_no,mfg_date)
+        //       ,total_all as (
+        //        select total_tb1.mfg_date,Upper(total_tb1.mc_no) as mc_no, DATEDIFF(SECOND,total_tb1.min_date, total_tb1.max_date) as nonoper , DATEDIFF(SECOND,total_tb2.min_date, total_tb2.max_date) as oper
+        //        from total_tb1
+        //        left join total_tb2
+        //        on total_tb1.mfg_date = total_tb2.mfg_date)
+        //        select mfg_date,mc_no,nonoper,cast((nonoper/(6*3600.00))*100 as decimal(10,2)) as [dec_non]   --,(nonoper*100/(6*3600)) as non
+        //        ,oper,cast((oper*100/(6*3600.00)) as decimal(10,2)) as [dec_oper]
+        //        from total_all
+        //  `
+      );
+
+      // console.log(resultdata);
+      console.log(resultdata[0].length);
+      arrayData = resultdata[0];
+      let name_series = ["Operating time", "Non - Operating time"];
+      let resultMC_Status = [];
+      arrayData.forEach(function (a) {
+        if (!this[a.mfg_date]) {
+          this[a.mfg_date] = { name: a.mfg_date, data: [] };
+          resultMC_Status.push(this[a.mfg_date]);
+        }
+        this[a.mfg_date].data.push(
+          a.oper,
+          a.non_oper
+          // a.dec_non,
+          // a.dec_oper,
+        );
+      }, Object.create(null));
+      // set arr all value
+      console.log("resultMC_Status =========", resultMC_Status);
+      let getarr1 = [];
+      let getarr2 = [];
+      for (let index = 0; index < resultMC_Status.length; index++) {
+        const item = resultMC_Status[index];
+        await getarr1.push(item.data[0]);
+        await getarr2.push(item.data[1]);
+      }
+      let getarr = [];
+      getarr.push(getarr1, getarr2);
+      // console.log(getarr);
+      //set name ball
+      let namemc = [];
+      for (let index = 0; index < resultMC_Status.length; index++) {
+        const item = resultMC_Status[index];
+        await namemc.push(item.name);
+      }
+      //set arr name,data
+      let dataset = [];
+      for (let index = 0; index < getarr.length; index++) {
+        dataset.push({
+          name: name_series[index],
+          data: getarr[index],
+        });
+      }
+
+      let resultDate = [];
+      arrayData.forEach(function (a) {
+        if (!this[a.mfg_date]) {
+          this[a.mfg_date] = { name: a.mfg_date };
+          resultDate.push(this[a.mfg_date]);
+        }
+      }, Object.create(null));
+
+      let newDate = [];
+      for (let index = 0; index < resultDate.length; index++) {
+        const item = resultDate[index];
+        await newDate.push(item.name);
+      }
+
+      // console.log(BallUsage[0]);
+      console.log("==============");
+      console.log(dataset);
+      console.log(resultDate);
+
+      res.json({
+        // resultBall: BallUsage[0],
+        result_length:resultdata[0].length,
+        result: dataset,
+        resultDate: newDate,
+
+        // resultTarget_turn: seriesTarget_new,
+      });
+    } catch (error) {
+      res.json({
+        error,
+        api_result: constance.NOK,
+      });
+    }
+  }
+);
+
+//mc status [non/operating time]
+router.post(
+  "/mc_by_status/:start_date/:end_date/:selectMc",
+  async (req, res) => {
+    try {
+      let { start_date } = req.params;
+      let { end_date } = req.params;
+      let { selectMc } = req.params;
+      let resultdata = await counter_table.sequelize.query(
+        `  WITH tb1
+      AS
+      (
+      SELECT  
+      iif(DATEPART(HOUR, [occurred])<7,dateadd(day,-1,[occurred]),[occurred]) as occur_new
+  , [registered_at]
+   ,[occurred]
+   ,[mc_status]
+   ,[mc_no]
+FROM [mms_demo].[dbo].[data_mcstatus]
+   where [mc_no] ='${selectMc}' 
+   group by [mc_status],iif(DATEPART(HOUR, [occurred])<7,dateadd(day,-1,[occurred]),[occurred])  , [registered_at]
+   ,[occurred]
+   ,[mc_status]
+   ,[mc_no])
+    , tb2  as(   select  [mc_status],format(occur_new,'yyyy-MM-dd')  as newDate ,[occurred],[mc_no]
+      FROM tb1
+    )
+    ,tb3 as (select tb2.[newDate]  as [mfg_date],[mc_no],[mc_status],[occurred]
+    from tb2
+   )
+    ,tb4 as (
+        SELECT *
+          ,lead([occurred]) over(partition by [mc_no] order by [mc_no],[occurred]) AS [NextTimeStamp]
+        FROM tb3 
+        where tb3.[mfg_date] between '${start_date}' and '${end_date}'
+        )
+        ,tb5 as (
+    select * ,datediff(MINUTE,occurred,NextTimeStamp) as timediff 
+    from tb4 where [NextTimeStamp] is not null
+    ) 
+    ,run as (
+    select mfg_date,[mc_no], sum(timediff) as run_oper
+    from tb5 
+    where [mc_status] = '1'
+    group by mfg_date,[mc_no]
+    )
+    ,stop as ( select mfg_date,[mc_no], sum(timediff) as stop_oper
+    from tb5 
+    where [mc_status] = '2'
+    group by mfg_date,[mc_no]
+    )
+    ,alarm as ( select mfg_date,[mc_no], sum(timediff) as alarm_oper
+    from tb5 
+    where [mc_status] = '3'
+    group by mfg_date,[mc_no]
+    )
+    ,wait as ( select mfg_date,[mc_no], sum(timediff) as wait_oper
+    from tb5 
+    where [mc_status] = '4'
+    group by mfg_date,[mc_no]
+    )
+    ,full_part as ( select mfg_date,[mc_no], sum(timediff) as full_oper
+    from tb5 
+    where [mc_status] = '5'
+    group by mfg_date,[mc_no]
+    )
+    select run.mfg_date,run.[mc_no],run_oper,stop_oper,alarm_oper,wait_oper,full_oper
+    from run 
+    left join stop
+    on run.mfg_date = stop.mfg_date
+    left join alarm
+    on run.mfg_date = alarm.mfg_date
+    left join wait
+    on run.mfg_date = wait.mfg_date
+    left join full_part
+    on run.mfg_date = full_part.mfg_date
+
+`
+      );
+
+      console.log(resultdata[0].length);
+      arrayData = resultdata[0];
+      let name_series = [
+        "RUN (1)",
+        "STOP (2)",
+        "ALARM (3)",
+        "WAIT PART (4)",
+        "FULL PART (5)",
+      ];
+      let resultMC_Status = [];
+      arrayData.forEach(function (a) {
+        if (!this[a.mfg_date]) {
+          this[a.mfg_date] = { name: a.mfg_date, data: [] };
+          resultMC_Status.push(this[a.mfg_date]);
+        }
+        this[a.mfg_date].data.push(
+          a.run_oper,
+          a.stop_oper,
+          a.alarm_oper,
+          a.wait_oper,
+          a.full_oper
+          // a.dec_non,
+          // a.dec_oper,
+        );
+      }, Object.create(null));
+      // set arr all value
+      console.log("resultMC_Status ====status=====", resultMC_Status);
+      let getarr1 = [];
+      let getarr2 = [];
+      let getarr3 = [];
+      let getarr4 = [];
+      let getarr5 = [];
+      for (let index = 0; index < resultMC_Status.length; index++) {
+        const item = resultMC_Status[index];
+        await getarr1.push(item.data[0]);
+        await getarr2.push(item.data[1]);
+        await getarr3.push(item.data[2]);
+        await getarr4.push(item.data[3]);
+        await getarr5.push(item.data[4]);
+      }
+      let getarr = [];
+      getarr.push(getarr1, getarr2, getarr3, getarr4, getarr5);
+      // console.log(getarr);
+      //set name ball
+      let namemc = [];
+      for (let index = 0; index < resultMC_Status.length; index++) {
+        const item = resultMC_Status[index];
+        await namemc.push(item.name);
+      }
+      //set arr name,data
+      let dataset = [];
+      for (let index = 0; index < getarr.length; index++) {
+        dataset.push({
+          name: name_series[index],
+          data: getarr[index],
+        });
+      }
+
+      let resultDate = [];
+      arrayData.forEach(function (a) {
+        if (!this[a.mfg_date]) {
+          this[a.mfg_date] = { name: a.mfg_date };
+          resultDate.push(this[a.mfg_date]);
+        }
+      }, Object.create(null));
+
+      let newDate = [];
+      for (let index = 0; index < resultDate.length; index++) {
+        const item = resultDate[index];
+        await newDate.push(item.name);
+      }
+
+      // console.log(BallUsage[0]);
+      console.log("======status========");
+      console.log(dataset);
+      console.log(newDate);
+
+      res.json({
+        resultdata: resultdata,
+        result: dataset,
+        resultDate: newDate,
+
+        // resultTarget_turn: seriesTarget_new,
+      });
+    } catch (error) {
+      res.json({
+        error,
+        api_result: constance.NOK,
+      });
+    }
+  }
+);
+
+router.get(
+  "/count_mc_status_daily/:start_date/:end_date",
+  async (req, res) => {
+    let { start_date } = req.params;
+    let { end_date } = req.params;
+    let { selectMc } = req.params;
+    console.log(selectMc);
+
+    var list_date = [];
+    list_date = getDatesInRange(new Date(start_date), new Date(end_date));
+    console.log("list_date", list_date);
+    var command_column = "";
+    var command_pivot = "";
+    for (let i = 0; i < list_date.length; i++) {
+      command_column =
+        command_column +
+        `CONVERT(varchar, isnull([` +
+        list_date[i] +
+        `],0))+','+`;
+      command_pivot = command_pivot + "],[" + list_date[i];
+    }
+    command_column = command_column.substring(0, command_column.length - 5);
+    command_pivot = command_pivot + "]";
+    command_pivot = command_pivot.substring(2);
+
+    //console.log('command_column',command_column);
+    // console.log("command_pivot", command_pivot);
+
+    try {
+      let resultMMS = await counter_table.sequelize.query(
+        `  WITH tb1 as (Select
+    format ( iif(DATEPART(HOUR, [occurred])<7,dateadd(day,-1,[occurred]),[occurred]),'yyyy-MM-dd') as [mfg_date],
+          iif(DATEPART(HOUR, [occurred])<7,dateadd(day,-1,[occurred]),[occurred]) as our,
+              --COUNT(mc_status) as new_mc_status-- sum(CASE WHEN [mc_status] <> '1' THEN 1 ELSE 0 END) as new_mc_status
+              [mc_no]
+                
+            FROM [mms_demo].[dbo].[data_mcstatus]
+            group by [occurred], [mc_no],[mc_status])
+    ,tb3 as (	  select [mfg_date],CASE WHEN COUNT([mc_no]) > 1 THEN 1 ELSE 0 END as new_mc_status,[mc_no]
+        from tb1
+        group by  [mfg_date],[mc_no]
+        --order by mc_no asc
+        )
+    ,tb2
+          AS
+          ( Select  [mfg_date],new_mc_status,[mc_no]
+                
+            FROM tb3
+            where  [mfg_date] between '${start_date}'and'${end_date}' and mc_no like '%r'-- and [mc_no] in ('TB01','TB02','TB03','TB04','TB05','TB06','TB14','TB15','TB16','TB17','TB18')
+        )
+          select [mc_no] as name,
+          ` +
+          command_column +
+          ` as data
+            from tb2
+        PIVOT (sum(new_mc_status)
+        FOR [mfg_date] IN (` +
+          command_pivot +
+          `)
+        ) AS pvt
+        ORDER BY pvt.[mc_no]
+          `
+      );
+      
+      arrayData_Over = resultMMS[0];
+      console.log(arrayData_Over);
+      //   arrayData_Over.forEach(function (data, index) {
+      //     arrayData_Over[index].array = (data.array.split(","))
+      // })
+      // console.log("test", arrayData_Over)
+// ตัด '
+      arrayData_Over.forEach(function (data, index) {
+        arrayData_Over[index].data = data.data.split(",").map((str) => {
+          return +str;
+        });
+      });
+
+      // console.log("test", arrayData_Over);
+
+      // let resultList_MMS = [];
+      // arrayData_Over.forEach(function (a) {
+      //   if (!this[a.mc_no]) {
+      //     this[a.mc_no] = { name: a.mc_no, data: [] };
+      //     resultList_MMS.push(this[a.mc_no]);
+      //   }
+      //   this[a.mc_no].data.push(a.array);
+      // }, Object.create(null));
+
+      // console.log(resultList_MMS);
+      // console.log(list_date);
+      // console.log(resultList_MMS.data[0]);
+
+      res.json({
+        // result: resultList_MMS,
+        result_Over: arrayData_Over,
+        resultDate: list_date,
+      });
+    } catch (error) {
+      res.json({
+        error,
+        api_result: constance.NOK,
+      });
+    }
+  }
+);
+
+// router.get("/gantt_MMS/:start_date/:selectMC", async (req, res) => {
+//   try {
+//     const { start_date, selectMC } = req.params;
+//     let stringMachine = await selectMC.replace("[", "");
+//     stringMachine = await stringMachine.replace("]", "");
+//     stringMachine = await stringMachine.replaceAll('"', "'");
+
+//     let ganttResult_STOP = await mms_table.sequelize.query(`
+//       WITH tb1
+//          AS
+//          (
+//          SELECT  
+//          iif(DATEPART(HOUR, [occurred])<7,dateadd(day,-1,[occurred]),[occurred]) as occur_new
+//            ,[mc_status]
+//            ,[occurred]
+          
+//          ,[mc_no]
+//       FROM [counter].[dbo].[test_mc_status]
+//       where [mc_no] ='${selectMC}' 
+//       group by [mc_status],iif(DATEPART(HOUR, [occurred])<7,dateadd(day,-1,[occurred]),[occurred]),[occurred],[mc_no])
+//        , tb2  as(   select  [mc_status],format(occur_new,'yyyy-MM-dd')  as newDate ,[occurred],[mc_no]
+//          FROM tb1
+//        )
+//        ,tb3 as (select [mc_status],[occurred],tb2.[newDate] as [MfgDate] ,[mc_no]
+//        from tb2
+//       )
+//        ,tb4 as (
+//            SELECT *
+//              ,lead([occurred]) over(partition by [mc_no] order by [mc_no],[occurred]) AS [NextTimeStamp]
+//            FROM tb3 
+//            where tb3.[MfgDate] = '${start_date}'
+//            )
+//            select * from tb4 where [mc_status] = '0' and [NextTimeStamp] is not null
+//       `);
+//     console.log(ganttResult_STOP);
+
+//     let ganttResult_START = await mms_table.sequelize.query(` WITH tb1
+//       AS
+//       (
+//       SELECT  
+//       iif(DATEPART(HOUR, [occurred])<7,dateadd(day,-1,[occurred]),[occurred]) as occur_new
+//         ,[mc_status]
+//         ,[occurred]
+       
+//       ,[mc_no]
+//    FROM [counter].[dbo].[test_mc_status]
+//    where [mc_no] ='${selectMC}' 
+//    group by [mc_status],iif(DATEPART(HOUR, [occurred])<7,dateadd(day,-1,[occurred]),[occurred]),[occurred],[mc_no])
+//     , tb2  as(   select  [mc_status],format(occur_new,'yyyy-MM-dd')  as newDate ,[occurred],[mc_no]
+//       FROM tb1
+//     )
+//     ,tb3 as (select [mc_status],[occurred],tb2.[newDate] as [MfgDate] ,[mc_no]
+//     from tb2
+//    )
+//     ,tb4 as (
+//         SELECT *
+//           ,lead([occurred]) over(partition by [mc_no] order by [mc_no],[occurred]) AS [NextTimeStamp]
+//         FROM tb3 
+//         where tb3.[MfgDate] = '${start_date}'
+//         )
+//         select * from tb4 where [mc_status] = '1' and [NextTimeStamp] is not null
+//       `);
+//     let ganttResult_ALARM = await mms_table.sequelize.query(` WITH tb1
+//       AS
+//       (
+//       SELECT  
+//       iif(DATEPART(HOUR, [occurred])<7,dateadd(day,-1,[occurred]),[occurred]) as occur_new
+//         ,[mc_status]
+//         ,[occurred]
+       
+//       ,[mc_no]
+//    FROM [counter].[dbo].[test_mc_status]
+//    where [mc_no] ='${selectMC}' 
+//    group by [mc_status],iif(DATEPART(HOUR, [occurred])<7,dateadd(day,-1,[occurred]),[occurred]),[occurred],[mc_no])
+//     , tb2  as(   select  [mc_status],format(occur_new,'yyyy-MM-dd')  as newDate ,[occurred],[mc_no]
+//       FROM tb1
+//     )
+//     ,tb3 as (select [mc_status],[occurred],tb2.[newDate] as [MfgDate] ,[mc_no]
+//     from tb2
+//    )
+//     ,tb4 as (
+//         SELECT *
+//           ,lead([occurred]) over(partition by [mc_no] order by [mc_no],[occurred]) AS [NextTimeStamp]
+//         FROM tb3 
+//         where tb3.[MfgDate] = '${start_date}' 
+//         )
+//         select * from tb4 where [mc_status] = '2' and [NextTimeStamp] is not null
+//       `);
+
+//     //set data
+//     let data_STOP = [];
+//     let data_START = [];
+//     let data_ALARM = [];
+
+//     ganttResult_STOP[0].forEach(async (item) => {
+//       await data_STOP.push({
+//         x: item.mc_no,
+//         y: [
+//           new Date(item.occurred).getTime(),
+//           new Date(item.NextTimeStamp).getTime(),
+//         ],
+//       });
+//     });
+
+//     console.log(data_STOP);
+
+//     ganttResult_START[0].forEach(async (item) => {
+//       await data_START.push({
+//         x: item.mc_no,
+//         y: [
+//           new Date(item.occurred).getTime(),
+//           new Date(item.NextTimeStamp).getTime(),
+//         ],
+//       });
+//     });
+//     console.log(data_START);
+//     ganttResult_ALARM[0].forEach(async (item) => {
+//       await data_ALARM.push({
+//         x: item.mc_no,
+//         y: [
+//           new Date(item.occurred).getTime(),
+//           new Date(item.NextTimeStamp).getTime(),
+//         ],
+//       });
+//     });
+
+//     console.log(data_ALARM);
+
+//     let series_STOP = { name: "STOP", data: data_STOP };
+//     let series_START = { name: "START", data: data_START };
+//     let series_ALARM = { name: "ALARM", data: data_ALARM };
+
+//     let series = [series_START, series_STOP, series_ALARM];
+
+//     console.log(series);
+//     res.json({
+//       series,
+//     });
+//   } catch (error) {
+//     res.json({
+//       error,
+//       api_result: constance.NOK,
+//     });
+//   }
+// });
+
 
 //////////////////////////////////////////////////////
 
@@ -872,7 +1495,7 @@ router.post("/AlarmTopic_time2", async (req, res) => {
 //           iif(DATEPART(HOUR, [occurred])<7,dateadd(day,-1,[occurred]),[occurred]) as our,
 //               --COUNT(mc_status) as new_mc_status-- sum(CASE WHEN [mc_status] <> '1' THEN 1 ELSE 0 END) as new_mc_status
 //               [mc_no]
-                
+
 //             FROM [counter].[dbo].[data_mcstatus]
 //             group by [occurred], [mc_no],[mc_status])
 //     ,tb3 as (	  select [mfg_date],CASE WHEN COUNT([mc_no]) > 1 THEN 1 ELSE 0 END as new_mc_status,[mc_no]
@@ -883,7 +1506,7 @@ router.post("/AlarmTopic_time2", async (req, res) => {
 //     ,tb2
 //           AS
 //           ( Select  [mfg_date],new_mc_status,[mc_no]
-                
+
 //             FROM tb3
 //             where  [mfg_date] between '${start_date}'and'${end_date}' and mc_no like '%r'-- and [mc_no] in ('TB01','TB02','TB03','TB04','TB05','TB06','TB14','TB15','TB16','TB17','TB18')
 //         )
