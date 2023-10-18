@@ -1,35 +1,33 @@
 const express = require("express");
 const router = express.Router();
-const bcrypt = require("bcryptjs");
+ const bcrypt = require("bcryptjs");
 const employee = require("../models/hr_employee_model");
 
 
 router.post("/login", async (req, res) => {
   try {
-    let { employee_id, password } = req.body;
-    console.log(req.body.employee_id);
-    let result = await employee.findOne({ where: { employee_id: employee_id } });
-    console.log(result.name_eng);
-    //Condition user checking
-    // Check username exist in system
-    
+    let { password } = req.body;
+    console.log(req.body.password);
+    let result = await employee.findOne({ where: { password: password } });
+ console.log(result.password)
     result != null
       ? // Check authentication level of user
         result.level_sys == "ADMIN" ||
-        result.level_sys == "SUPERVISOR" ||
-        result.level_sys == "STAFF"
-        ? // Check password correctly match with user
+        result.level_sys == "USER" ||
+        result.level_sys == "GUEST"
+     
 
-      
-          bcrypt.compareSync(password, result.password)
+        ? 
+       
+         password == result.password
           ? res.json({ result, message: "OK" })
-          : res.json({ result, message: "Incorrect Username or Password" })
-        : // Authentications not allow from this user
-          res.json({
+          : res.json({ result, message: "Incorrect Username" })
+          : res.json({
             result,
             message: "Your Permission Not Allow, Please Contact Support",
           })
-      : res.json({ result, message: "Incorrect Username or Password" });
+      : res.json({ result, message: "Incorrect Username or Password" })
+        
   } catch (error) {
     return res.json({
       result: "Failed",
@@ -60,7 +58,7 @@ router.post("/register", async (req, res) => {
       section: section,
       department: department,
       level_sys: level_sys,
-      password: bcrypt.hashSync(password, 8),
+      password: password,
      
      
     });

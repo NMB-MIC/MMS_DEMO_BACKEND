@@ -7,6 +7,7 @@ const constance = require("../constance/constance");
 const masterSPC = require("../models/model_masterSPC");
 const masterLine = require("../models/model_Data_matching");
 const XbarData = require("../models/model_Data_matching");
+const Pcmb_data = require("../models/model_pcmb_data");
 
 
 
@@ -231,5 +232,55 @@ router.get(
     }
   }
 );
+
+router.post("/pcmb_measure_Hei_Air_TM", async (req, res) => {
+  try {
+    const {
+      TIMESTAMP,
+      PROCESS,
+      MODEL,
+      TOTAL_LG,
+      LG_STEP_OD,
+      LG_STEP_ID_CP,
+
+      ID_TOP,
+      ID_BOTTOM,
+
+      OD1,
+      OD2,
+      OD3
+      
+    } = req.body;
+
+    console.log(req.body)
+
+    const result = await Pcmb_data.create({
+      Timestamp:TIMESTAMP,
+      PROCESS: PROCESS,
+      MODEL:MODEL,
+      TOTAL_LG:TOTAL_LG,
+      LG_STEP_OD:LG_STEP_OD,
+      LG_STEP_ID_CP:LG_STEP_ID_CP,
+
+      ID_TOP:ID_TOP,
+      ID_BOTTOM:ID_BOTTOM,
+
+      OD1:OD1,
+      OD2:OD2,
+      OD3:OD3
+     
+     
+    });
+    res.json({
+        api_result: "OK",
+      message: JSON.stringify(result),
+    });
+  } catch (error) {
+    return res.json({
+        api_result: "Failed",
+      message: error.message,
+    });
+  }
+});
 
 module.exports = router;
