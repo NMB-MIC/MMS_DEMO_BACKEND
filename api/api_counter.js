@@ -204,24 +204,29 @@ router.post("/mms_log", async (req, res) => {
     let Result = await counter_table.sequelize.query(
       `
           /* get status_log*/
-          with tb1 as ( SELECT format (iif(DATEPART(HOUR, [occurred])<7,dateadd(day,-1,[occurred]),[occurred]),'yyyy-MM-dd') as mfg_date
-          ,IIF(CAST(DATEPART(HOUR, [occurred]) AS int)=0,23,CAST(DATEPART(HOUR, [occurred]) AS int)) as [hour]
-          ,[occurred]
-      ,[mc_status]
-      ,[mc_no]
-  FROM [mms_demo].[dbo].[data_mcstatus])
-      ,tb2 as (select  mfg_date,[occurred]
-        ,lead([occurred]) over(partition by [mc_no] order by [mc_no],[occurred]) AS [NextTimeStamp]
-        ,[mc_status]
-        ,[mc_no]
-        from tb1
-        where [mc_no] = '${req.body.machine}' and  mfg_date = '${req.body.date}' )
-         --where [mc_no] ='${req.body.machine}' and  mfg_date = '${req.body.date}' )
-        select mfg_date,convert(varchar,[occurred],120) as [occurred]
-        ,convert(varchar,[NextTimeStamp] ,120) as [NextTimeStamp],[mc_status] 
-	      ,datediff(SECOND,occurred,NextTimeStamp) as sec_timediff 
-	      ,datediff(MINUTE,occurred,NextTimeStamp) as min_timediff 
-        from tb2 where [NextTimeStamp] is not null
+       
+          with tb1 as (
+            SELECT format (iif(DATEPART(HOUR, [occurred])<7,dateadd(day,-1,[occurred]),[occurred]),'yyyy-MM-dd') as mfg_date
+            ,IIF(CAST(DATEPART(HOUR,[occurred]) AS int)=0,23,CAST(DATEPART(HOUR,[occurred]) AS int)) as [hour]     
+             --,iif(DATEPART(HOUR, [occurred])<7,dateadd(day,-1,[occurred]),[occurred]) as [occurred]
+             ,[occurred]
+            ,lead([occurred]) over(partition by [mc_no] order by [mc_no],[occurred]) AS [NextTimeStamp]
+            ,[mc_status]
+            ,[mc_no]
+            FROM [gmma_machine_data].[dbo].[DATA_MCSTATUS_GMMA]
+           ) ,tb2 as (
+             select  mfg_date,[occurred] 
+                  --,[NextTimeStamp]
+				  ,iif([NextTimeStamp] is NULL ,GETDATE(),[NextTimeStamp]) as [NextTimeStamp]
+                  ,[mc_status]
+                  ,[mc_no] 
+                  from tb1
+                  where [mc_no] ='${req.body.machine}'  and  mfg_date = '${req.body.date}'
+           )
+             select mfg_date,convert(varchar,[occurred],120) as [occurred]
+             ,convert(varchar,[NextTimeStamp] ,120) as [NextTimeStamp],[mc_status]  
+             from tb2 
+             where [NextTimeStamp] is not null 
     `
     );
     console.log(Result)
